@@ -222,9 +222,9 @@ def handle_multiple_builds():
     try:
         count = int(input("How many builds to generate? (default 5): ") or "5")
         num_lines = input("How many skill lines to replace? (default random): ")
-        num_lines = int(num_lines) if num_lines else None
+        lines: int | None = int(num_lines) if num_lines else None
         clear_screen()
-        generate_multiple_builds(count, num_lines=num_lines)
+        generate_multiple_builds(count, num_lines=lines)
         print("\nPress any key to continue...")
         get_single_key()
         clear_screen()
