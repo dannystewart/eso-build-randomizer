@@ -10,8 +10,17 @@ import argparse
 import random
 import sys
 import termios
+import time
 import tty
 from typing import Any
+
+from rich import box
+from rich.align import Align
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt
+from rich.table import Table
+from rich.text import Text
 
 
 class QuitRequested(Exception):  # noqa: N818
@@ -92,16 +101,16 @@ def generate_random_build(
 
 
 def print_build(build: dict[str, Any]):
-    """Pretty print a build configuration."""
-    print(f"🏛️  {build['base_class']} Build")
-    print("=" * 50)
-    print("📜 Skill Lines:")
+    """Pretty print a build configuration using Rich."""
+    console = Console()
 
+    # Create skill lines content
+    skill_lines_content = []
     original_skills = CLASSES[build["base_class"]]
 
     for skill in build["skill_lines"]:
         if skill in original_skills:
-            print(f"   • {skill}")
+            skill_lines_content.append(f"   [cyan]• {skill}[/cyan]")
         else:
             # Find which class this skill belongs to
             source_class = None
@@ -109,50 +118,108 @@ def print_build(build: dict[str, Any]):
                 if skill in skills:
                     source_class = cls
                     break
-            print(f"   • {skill} (from {source_class})")
+            skill_lines_content.append(
+                f"   [cyan]• {skill}[/cyan] [yellow](from {source_class})[/yellow]"
+            )
+
+    # Build the panel content as a string
+    panel_content_lines = []
+    panel_content_lines.extend((f"[bold blue]{build['base_class']} with Skill Lines:[/bold blue]",))
+    panel_content_lines.extend(skill_lines_content)
 
     if build["subclassed_from"]:
-        print(f"\n🔄 Subclassed from: {', '.join(build['subclassed_from'])}")
+        panel_content_lines.append("")
+        # Create a single line with highlighted class names
+        subclass_names = [f"[bold yellow]{cls}[/bold yellow]" for cls in build["subclassed_from"]]
+        panel_content_lines.append(f"[bold cyan]Subclasses {', '.join(subclass_names)}[/bold cyan]")
+    else:
+        panel_content_lines.extend((
+            "",
+            f"[bold green]Pure {build['base_class']} build[/bold green]",
+        ))
 
-    print(f"💡 {build['description']}")
-    print("-" * 50)
+    panel_content = "\n".join(panel_content_lines)
+
+    # Create the panel with shorter title
+    panel = Panel(
+        panel_content,
+        border_style="bright_cyan",
+        padding=(1, 2),
+        title=f"[bold white]{build['base_class']} Build[/bold white]",
+        title_align="center",
+    )
+
+    console.print(panel)
 
 
 def generate_multiple_builds(
     count: int = 5, base_class: str | None = None, num_lines: int | None = None
 ):
-    """Generate multiple random builds."""
-    print(f"🎲 Generating {count} Random ESO Builds")
-    print("=" * 50)
+    """Generate multiple random builds using Rich layout."""
+    console = Console()
+
+    # Header
+    header = Panel(
+        Align.center(Text(f"{count} Random ESO Builds", style="bold magenta")),
+        border_style="magenta",
+        padding=(1, 2),
+    )
+    console.print(header)
+    console.print()
 
     for i in range(count):
         build = generate_random_build(base_class, num_lines)
         print_build(build)
 
-        if i < count - 1:  # Don't print extra newline after last build
-            print()
+        if i < count - 1:  # Don't print extra space after last build
+            console.print()
 
 
 def ask_for_retry(
     last_class: str | None = None, was_random: bool = False
-) -> tuple[bool, str | None, bool]:
-    """Ask user if they want to retry with same class or start over."""
+) -> tuple[bool, str | None]:
+    """Ask user if they want to retry with same class or start over using Rich.
+
+    Raises:
+        QuitRequested: If the user presses Q to quit.
+    """
+    console = Console()
+
     if last_class:
-        print("\nWhat would you like to do next?")
+        console.print()
+
+        # Create options panel
+        options_text = []
         if was_random:
-            print("1. Generate another random build")
+            options_text.append("[bold cyan]1.[/bold cyan] Generate another random build")
         else:
-            print(f"1. Generate another {last_class} build")
-        print("2. Start over (back to main menu)")
-        print("\nPress 1 or 2...")
+            options_text.append(f"[bold cyan]1.[/bold cyan] Generate another {last_class} build")
+        options_text.extend((
+            "[bold cyan]2.[/bold cyan] Start over (back to main menu)",
+            "[bold cyan]Q.[/bold cyan] Quit",
+        ))
+
+        options_panel = Panel(
+            "\n".join(options_text),
+            title="[bold blue]What's next?[/bold blue]",
+            border_style="blue",
+            padding=(1, 2),
+        )
+        console.print(options_panel)
+
+        console.print("\n[dim]Press 1, 2, or Q...[/dim]")
         choice = get_single_key()
+
         if choice == "1":
-            return True, last_class if not was_random else None, was_random
+            return True, last_class if not was_random else None
         if choice == "2":
-            return False, None, False
-        print("❌ Invalid choice! Returning to main menu.")
-        return False, None, False
-    return False, None, False
+            return False, None
+        if choice == "q":
+            raise QuitRequested
+
+        console.print("[yellow]Sorry, that's not a valid option. Please try again.[/yellow]")
+        return False, None
+    return False, None
 
 
 def handle_random_build():
@@ -162,138 +229,204 @@ def handle_random_build():
     print_build(build)
 
     # Ask if they want to retry
-    retry, retry_class, _was_random = ask_for_retry(build["base_class"], was_random=True)
+    retry, retry_class = ask_for_retry(build["base_class"], was_random=True)
     while retry:
         clear_screen()
         build = generate_random_build(retry_class)  # retry_class will be None for random
         print_build(build)
-        retry, retry_class, _was_random = ask_for_retry(build["base_class"], was_random=True)
+        retry, retry_class = ask_for_retry(build["base_class"], was_random=True)
     clear_screen()
 
 
 def handle_class_selection():
-    """Handle class-specific build generation with retry logic."""
+    """Handle class-specific build generation with retry logic.
+
+    Raises:
+        QuitRequested: If the user presses Q to quit.
+    """
+    console = Console()
     clear_screen()
-    print("🎮 ESO Build Randomizer - Class Selection")
-    print("=" * 50)
-    print("\nAvailable classes:")
-    for i, cls in enumerate(CLASSES.keys(), 1):
-        print(f"{i}. {cls}")
-    print("\nChoose a class...")
 
-    class_choice = get_single_key()
-    try:
-        class_index = int(class_choice) - 1
-        class_names = list(CLASSES.keys())
-        if 0 <= class_index < len(class_names):
-            selected_class = class_names[class_index]
-            clear_screen()
-            build = generate_random_build(selected_class)
-            print_build(build)
+    while True:
+        # Create class selection panel
+        class_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+        class_table.add_column("Option", style="bold cyan", width=4)
+        class_table.add_column("Class", style="white")
 
-            # Ask if they want to retry with the same class
-            retry, retry_class, _ = ask_for_retry(selected_class, was_random=False)
-            while retry:
+        for i, cls in enumerate(CLASSES.keys(), 1):
+            class_table.add_row(str(i), cls)
+
+        class_table.add_row("Q", "Quit")
+
+        class_panel = Panel(
+            class_table,
+            title="[bold yellow]Choose Your Class[/bold yellow]",
+            border_style="yellow",
+            padding=(1, 2),
+        )
+
+        console.print(class_panel)
+        console.print("\n[dim]Choose a class or Q to quit...[/dim]")
+
+        class_choice = get_single_key()
+        try:
+            if class_choice.lower() == "q":
+                raise QuitRequested
+            class_index = int(class_choice) - 1
+            if 0 <= class_index < len(CLASSES):
+                selected_class = list(CLASSES.keys())[class_index]
                 clear_screen()
-                build = generate_random_build(retry_class)
+                build = generate_random_build(selected_class)
                 print_build(build)
-                retry, retry_class, _ = ask_for_retry(retry_class, was_random=False)
-            clear_screen()
-        else:
-            clear_screen()
-            print("❌ Invalid class selection!")
-            print("Press any key to continue...")
-            get_single_key()
-            clear_screen()
-    except ValueError:
-        clear_screen()
-        print("❌ Please enter a valid number!")
-        print("Press any key to continue...")
-        get_single_key()
-        clear_screen()
+
+                # Ask if they want to retry
+                retry, retry_class = ask_for_retry(selected_class, was_random=False)
+                while retry:
+                    clear_screen()
+                    build = generate_random_build(retry_class)
+                    print_build(build)
+                    retry, retry_class = ask_for_retry(retry_class, was_random=False)
+                break
+            # Don't clear screen - show error with context
+            error_panel = Panel(
+                "[yellow]Sorry, that's not a valid class number. Please try again![/yellow]",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+            console.print(error_panel)
+            console.print()
+        except ValueError:
+            # Don't clear screen - show error with context
+            error_panel = Panel(
+                "[yellow]Please enter a number for the class selection.[/yellow]",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+            console.print(error_panel)
+            console.print()
 
 
 def handle_multiple_builds():
-    """Handle multiple build generation."""
+    """Handle multiple build generation.
+
+    Raises:
+        QuitRequested: If the user presses Q to quit.
+    """
+    console = Console()
     clear_screen()
-    print("🎮 ESO Build Randomizer - Multiple Builds")
-    print("=" * 50)
-    try:
-        count = int(input("How many builds to generate? (default 5): ") or "5")
-        num_lines = input("How many skill lines to replace? (default random): ")
-        lines: int | None = int(num_lines) if num_lines else None
-        clear_screen()
-        generate_multiple_builds(count, num_lines=lines)
-        print("\nPress any key to continue...")
-        get_single_key()
-        clear_screen()
-    except ValueError:
-        clear_screen()
-        print("❌ Please enter a valid number!")
-        print("Press any key to continue...")
-        get_single_key()
-        clear_screen()
+
+    while True:
+        # Create input panel
+        input_panel = Panel(
+            "[bold cyan]Multiple Build Generator[/bold cyan]\n\n"
+            + "Configure your batch generation settings:\n\n"
+            + "[dim]Press Q at any prompt to quit[/dim]",
+            title="[bold yellow]Batch Settings[/bold yellow]",
+            border_style="yellow",
+            padding=(1, 2),
+        )
+        console.print(input_panel)
+        console.print()
+
+        try:
+            count = Prompt.ask("[cyan]How many builds to generate?[/cyan]", default="5")
+            if count.lower() == "q":
+                raise QuitRequested
+            count = int(count)
+            num_lines_input = Prompt.ask(
+                "[cyan]How many skill lines to replace?[/cyan] [dim](1, 2, or leave blank for random)[/dim]",
+                default="",
+            )
+            if num_lines_input.lower() == "q":
+                raise QuitRequested
+            lines: int | None = int(num_lines_input) if num_lines_input else None
+
+            clear_screen()
+            generate_multiple_builds(count, num_lines=lines)
+            console.print("\n[dim]Press any key to continue...[/dim]")
+            get_single_key()
+            break
+        except ValueError:
+            # Don't clear screen - show error with context
+            error_panel = Panel(
+                "[yellow]Please enter a valid number.[/yellow]",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+            console.print(error_panel)
+            console.print()
 
 
 def interactive_mode() -> None:
-    """Interactive mode for generating builds.
+    """Interactive mode for generating builds using Rich UI.
 
     Raises:
         QuitRequested: If user presses Q at any point.
     """
+    console = Console()
     clear_screen()
 
     while True:
-        print("🎮 ESO Build Randomizer - Interactive Mode")
-        print("=" * 50)
-        print("\nOptions:")
-        print("1. Generate random build (any class)")
-        print("2. Generate build for specific class")
-        print("3. Generate multiple builds")
-        print("Q. Quit")
-        print("\nChoose an option...")
+        try:
+            # Create the main menu
+            title = Text("ESO Build Randomizer", style="bold magenta")
+            subtitle = Text("Interactive Mode", style="dim cyan")
 
-        choice = get_single_key()
+            # Create menu options table
+            menu_table = Table(show_header=False, box=None, padding=(0, 2))
+            menu_table.add_column("Option", style="bold cyan", width=1)
+            menu_table.add_column("Description", style="white")
 
-        if choice == "1":
-            handle_random_build()
-        elif choice == "2":
-            handle_class_selection()
-        elif choice == "3":
-            handle_multiple_builds()
-        elif choice == "q":
-            raise QuitRequested
-        else:
+            menu_table.add_row("1", "Generate random build (any class)")
+            menu_table.add_row("2", "Generate build for specific class")
+            menu_table.add_row("3", "Generate multiple builds")
+            menu_table.add_row("Q", "Quit")
+
+            # Display the menu
+            console.print(Align.center(title))
+            console.print(Align.center(subtitle))
+            console.print()
+            console.print(menu_table)
+            console.print("\n[dim]Choose an option...[/dim]")
+
+            choice = get_single_key()
+
+            if choice == "1":
+                handle_random_build()
+            elif choice == "2":
+                handle_class_selection()
+            elif choice == "3":
+                handle_multiple_builds()
+            elif choice == "q":
+                raise QuitRequested
+            else:
+                # Don't clear screen - show error with context
+                error_panel = Panel(
+                    "[yellow]Sorry, that's not a valid option. Try 1, 2, 3, or Q.[/yellow]",
+                    border_style="yellow",
+                    padding=(0, 2),
+                )
+                console.print(error_panel)
+                console.print()
+        except QuitRequested:
             clear_screen()
-            print("❌ Invalid choice! Please press 1, 2, 3, or Q.")
-            print("Press any key to continue...")
+            break
+        except Exception as e:
+            console = Console()
+            console.print(f"[red]An error occurred: {e}[/red]")
+            console.print("\n[dim]Press any key to continue...[/dim]")
             get_single_key()
             clear_screen()
 
 
 def clear_screen():
     """Clear the terminal screen and position cursor at top-left."""
-    # Check if we're in a real terminal that supports ANSI codes
-    if sys.stdout.isatty() and sys.stdin.isatty():
-        try:  # Use ANSI escape codes for real terminals
-            sys.stdout.write("\033[2J\033[H")
-            sys.stdout.flush()
-            return
-        except Exception:
-            pass
-
-    # Fallback to system clear command
-    import os
-
-    os.system("cls" if os.name == "nt" else "clear")
-
-    # After system clear, try to position cursor at top-left if possible
-    if sys.stdout.isatty():
-        try:
-            sys.stdout.write("\033[H")
-            sys.stdout.flush()
-        except Exception:
-            pass
+    console = Console()
+    console.clear()
+    # Add a small delay to ensure the clear operation completes
+    time.sleep(0.05)
+    # Force flush to ensure immediate clearing
+    sys.stdout.flush()
 
 
 def get_single_key() -> str:
@@ -304,31 +437,32 @@ def get_single_key() -> str:
         KeyboardInterrupt: If Ctrl+C is pressed.
     """
     try:
-        # Save terminal settings
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-
-        # Set terminal to raw mode
-        tty.setraw(sys.stdin.fileno())
-
-        # Read single character
-        key = sys.stdin.read(1)
-
-        # Restore terminal settings
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-        # Handle Ctrl+C
-        if ord(key) == 3:  # Ctrl+C
-            raise KeyboardInterrupt
-
-        # Handle Q
-        if key.lower() == "q":
-            raise QuitRequested
-
-        return key.lower()
-    except (ImportError, AttributeError):
-        # Fallback for systems without termios (like Windows)
-        return input().strip().lower()
+        # Try Unix-style terminal input first
+        if hasattr(sys.stdin, "fileno") and sys.stdout.isatty():
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(sys.stdin.fileno())
+                key = sys.stdin.read(1)
+                if key == "\x03":  # Ctrl+C
+                    raise KeyboardInterrupt
+                if key.lower() == "q":
+                    raise QuitRequested
+                return key.lower()
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        else:
+            # Fallback when not in a proper terminal
+            key = Prompt.ask("Press a key", default="").strip().lower()
+            if key == "q":
+                raise QuitRequested from None
+            return key
+    except (ImportError, AttributeError, OSError):
+        # Fallback for systems without termios or when not in a proper terminal
+        key = Prompt.ask("Press a key", default="").strip().lower()
+        if key == "q":
+            raise QuitRequested from None
+        return key
 
 
 def main():
@@ -358,26 +492,30 @@ def main():
         if args.interactive:
             interactive_mode()
         else:
-            print("🎲 ESO Build Randomizer")
+            console = Console()
+            console.print("ESO Build Randomizer")
             if args.base_class:
-                print(f"Generating builds for {args.base_class}...\n")
+                console.print(f"Generating builds for {args.base_class}...\n")
             else:
-                print("Generating random builds...\n")
+                console.print("Generating random builds...\n")
 
             if args.lines and not 1 <= args.lines <= 2:
-                print("❌ Invalid number of lines to replace. Must be 1 or 2.")
+                console.print("[yellow]Number of lines to replace should be 1 or 2.[/yellow]")
                 return
 
             generate_multiple_builds(args.number, args.base_class, args.lines)
 
-            print("\n💡 Tip: Use --help to see all options, or -i for interactive mode!")
+            console.print(
+                "\n[dim]Tip: Use --help to see all options, or -i for interactive mode![/dim]"
+            )
     except QuitRequested:
         clear_screen()
-        print("👋 Happy theorycrafting!")
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
+        console = Console()
+        console.print("\n[cyan]Goodbye![/cyan]")
     except Exception as e:
-        print(f"❌ An error occurred: {e}")
+        console = Console()
+        console.print(f"[red]An error occurred: {e}[/red]")
 
 
 if __name__ == "__main__":
