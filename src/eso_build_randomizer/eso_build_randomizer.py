@@ -101,7 +101,7 @@ def generate_random_build(
 
 
 def print_build(build: dict[str, Any]):
-    """Pretty print a build configuration using Rich."""
+    """Pretty print a build configuration using Rich for interactive mode."""
     console = Console()
 
     # Create skill lines content
@@ -124,26 +124,23 @@ def print_build(build: dict[str, Any]):
 
     # Build the panel content as a string
     panel_content_lines = []
-    panel_content_lines.extend((f"[bold blue]{build['base_class']} with Skill Lines:[/bold blue]",))
+    panel_content_lines.append("[bold blue]Skill Lines:[/bold blue]")
     panel_content_lines.extend(skill_lines_content)
 
     if build["subclassed_from"]:
         panel_content_lines.append("")
         # Create a single line with highlighted class names
-        subclass_names = [f"[bold yellow]{cls}[/bold yellow]" for cls in build["subclassed_from"]]
-        panel_content_lines.append(f"[bold cyan]Subclasses {', '.join(subclass_names)}[/bold cyan]")
-    else:
-        panel_content_lines.extend((
-            "",
-            f"[bold green]Pure {build['base_class']} build[/bold green]",
-        ))
+        subclass_names = [f"[bold magenta]{cls}[/bold magenta]" for cls in build["subclassed_from"]]
+        panel_content_lines.append(
+            f"[bold yellow]{build['base_class']} with {', '.join(subclass_names)} subclassing[/bold yellow]"
+        )
 
     panel_content = "\n".join(panel_content_lines)
 
     # Create the panel with shorter title
     panel = Panel(
         panel_content,
-        border_style="bright_cyan",
+        border_style="bright_blue",
         padding=(1, 2),
         title=f"[bold white]{build['base_class']} Build[/bold white]",
         title_align="center",
@@ -152,27 +149,58 @@ def print_build(build: dict[str, Any]):
     console.print(panel)
 
 
+def print_build_simple(build: dict[str, Any]):
+    """Simple, compact build output for command-line use."""
+    console = Console()
+
+    # Header with class name
+    console.print(f"\n[bold blue]{build['base_class']} Build[/bold blue]")
+    console.print("[blue]" + "─" * (len(build["base_class"]) + 6) + "[/blue]")
+
+    # Skill lines
+    original_skills = CLASSES[build["base_class"]]
+    for skill in build["skill_lines"]:
+        if skill in original_skills:
+            console.print(f"[cyan]• {skill}[/cyan]")
+        else:
+            # Find which class this skill belongs to
+            source_class = None
+            for cls, skills in CLASSES.items():
+                if skill in skills:
+                    source_class = cls
+                    break
+            console.print(f"[bold cyan]• {skill}[/bold cyan] [yellow]({source_class})[/yellow]")
+
+
 def generate_multiple_builds(
-    count: int = 5, base_class: str | None = None, num_lines: int | None = None
+    count: int = 5,
+    base_class: str | None = None,
+    num_lines: int | None = None,
+    simple_output: bool = False,
 ):
     """Generate multiple random builds using Rich layout."""
     console = Console()
 
-    # Header
-    header = Panel(
-        Align.center(Text(f"{count} Random ESO Builds", style="bold magenta")),
-        border_style="magenta",
-        padding=(1, 2),
-    )
-    console.print(header)
-    console.print()
+    if not simple_output:
+        # Header for interactive mode
+        header = Panel(
+            Align.center(Text(f"{count} Random ESO Builds", style="bold magenta")),
+            border_style="magenta",
+            padding=(1, 2),
+        )
+        console.print(header)
+        console.print()
 
     for i in range(count):
         build = generate_random_build(base_class, num_lines)
-        print_build(build)
+        if simple_output:
+            print_build_simple(build)
+        else:
+            print_build(build)
 
         if i < count - 1:  # Don't print extra space after last build
-            console.print()
+            if not simple_output:
+                console.print()
 
 
 def ask_for_retry(
@@ -493,17 +521,14 @@ def main():
             interactive_mode()
         else:
             console = Console()
-            console.print("ESO Build Randomizer")
-            if args.base_class:
-                console.print(f"Generating builds for {args.base_class}...\n")
-            else:
-                console.print("Generating random builds...\n")
+            console.print("\n[bold magenta]ESO Build Randomizer[/bold magenta]")
+            console.print("[magenta]" + "─" * len("ESO Build Randomizer") + "[/magenta]")
 
             if args.lines and not 1 <= args.lines <= 2:
                 console.print("[yellow]Number of lines to replace should be 1 or 2.[/yellow]")
                 return
 
-            generate_multiple_builds(args.number, args.base_class, args.lines)
+            generate_multiple_builds(args.number, args.base_class, args.lines, simple_output=True)
 
             console.print(
                 "\n[dim]Tip: Use --help to see all options, or -i for interactive mode![/dim]"
