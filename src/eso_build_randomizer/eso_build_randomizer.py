@@ -7,7 +7,6 @@ Generates random skill line combinations following the new subclassing system ru
 from __future__ import annotations
 
 import argparse
-import os
 import random
 import sys
 import termios
@@ -273,8 +272,28 @@ def interactive_mode() -> None:
 
 
 def clear_screen():
-    """Clear the terminal screen."""
+    """Clear the terminal screen and position cursor at top-left."""
+    # Check if we're in a real terminal that supports ANSI codes
+    if sys.stdout.isatty() and sys.stdin.isatty():
+        try:  # Use ANSI escape codes for real terminals
+            sys.stdout.write("\033[2J\033[H")
+            sys.stdout.flush()
+            return
+        except Exception:
+            pass
+
+    # Fallback to system clear command
+    import os
+
     os.system("cls" if os.name == "nt" else "clear")
+
+    # After system clear, try to position cursor at top-left if possible
+    if sys.stdout.isatty():
+        try:
+            sys.stdout.write("\033[H")
+            sys.stdout.flush()
+        except Exception:
+            pass
 
 
 def get_single_key() -> str:
